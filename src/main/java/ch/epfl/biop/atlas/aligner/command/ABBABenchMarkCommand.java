@@ -8,7 +8,6 @@ import ch.epfl.biop.atlas.aligner.gui.bdv.ABBABdvStartCommand;
 import ch.epfl.biop.atlas.aligner.gui.bdv.BdvMultislicePositionerView;
 import ch.epfl.biop.atlas.mouse.allen.ccfv3p1asr.command.AllenBrainAdultMouseAtlasCCF2017v3p1ASRCommand;
 import ch.epfl.biop.atlas.struct.Atlas;
-import ch.epfl.biop.bdv.img.omero.command.OmeroConnectCommand;
 import ch.epfl.biop.bdv.img.qupath.command.CreateBdvDatasetQuPathCommand;
 import ij.IJ;
 import ij.Prefs;
@@ -38,8 +37,8 @@ public class ABBABenchMarkCommand implements Command {
     @Parameter
     String comment;
 
-    @Parameter(choices = {"25 sections", "97 sections"})
-    String demo_dataset;
+    @Parameter(description = "The QuPath project on which to benchmark ABBA.")
+    File qupathProjectFile;
 
     @Parameter(description = "Slower when check - wait for all sections to have finished their registration steps before starting the next one.")
     boolean wait_betweem_each_step;
@@ -63,58 +62,35 @@ public class ABBABenchMarkCommand implements Command {
     public void run() {
         // Check whether the benchmark can work TODO:
         // - Elastix and transformix set
-        // - Access to internet (to DL the OMERO public dataset)
-        // - OMERO dependencies present (OMERO 5.5-5.6)
         // - DeepSlice set
 
         // Collect info of current configuration:
         // - What is in the ask for help command
         // - Number of threads
         // - Execution date
+        String fileName = this.qupathProjectFile.getName();
+        if (!this.qupathProjectFile.isFile() || !"qpproj".equals(fileName.substring(fileName.lastIndexOf('.') + 1))) {
+            IJ.log("Please select an existing qpproj file.");
+            return;
+        }
 
-        Task task = taskService.createTask("ABBA Benchmark - "+demo_dataset+ " | ");
+        Task task = taskService.createTask("ABBA Benchmark - "+qupathProjectFile.getParent()+ " | ");
         task.start();
         try {
-
-            File qupathProjectFile;
-
             System.gc();
-            task.setStatusMessage("Download QuPath Project...");
-            startTiming("Download QuPath Project");
-            switch (demo_dataset) {
-                case "25 sections":
-                    qupathProjectFile = ABBAHelper.getTempQPProject("https://zenodo.org/records/14918378/files/abba-omero-gerbi-subset.zip");
-                    break;
-                case "97 sections":
-                    qupathProjectFile = ABBAHelper.getTempQPProject("https://zenodo.org/records/14918378/files/abba-omero-gerbi-full.zip");
-                    break;
-                default:
-                    throw new IllegalArgumentException("Demo dataset not recognized: " + demo_dataset);
-            }
-            endTiming("Download QuPath Project");
-
-            task.setStatusMessage("Connect to OMERO Server...");
-            startTiming("Connect to OMERO Server");
-            cs.run(OmeroConnectCommand.class, true,
-                    "host", "omero-tim.gerbi-gmb.de",
-                    "username", "read-tim",
-                    "password", "read-tim"
-            ).get();
-            endTiming("Connect to OMERO Server");
-
 
             task.setStatusMessage("Create BDV Dataset...");
             startTiming("Create BDV Dataset");
             cs.run(CreateBdvDatasetQuPathCommand.class, true,
-                    "qupath_project", qupathProjectFile,
-                    "datasetname", "gerbi-omero-project",
+                    "qupath_project", this.qupathProjectFile,
+                    "datasetname", "benchmark-project", // leave empty to name it like the QuPath project
                     "unit", "MILLIMETER",
                     "split_rgb_channels", false,
                     "plane_origin_convention", "[TOP LEFT]").get();
 
             SourceAndConverterServiceUI treeUI = source_service.getUI();
             List<SourceAndConverter<?>[]> groupedSources = new ArrayList<>();
-            treeUI.getRoot().child("gerbi-omero-project").child("ImageName").children().forEach(imageNameNode -> {
+            treeUI.getRoot().child("benchmark-project").child("ImageName").children().forEach(imageNameNode -> {
                 SourceAndConverter<?>[] sources = imageNameNode.sources();
                 groupedSources.add(sources);
             });
@@ -317,7 +293,7 @@ public class ABBABenchMarkCommand implements Command {
 
         builder.append("- Comments: "+comment+"\n");
 
-        builder.append("- Dataset: "+this.demo_dataset+"\n");
+        builder.append("- QuPath project: "+this.qupathProjectFile+"\n");
 
         builder.append("- Number of threads: "+Prefs.getThreads()+"\n");
 
